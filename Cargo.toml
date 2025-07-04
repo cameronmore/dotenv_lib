@@ -4,5 +4,6 @@ version = "0.1.0"
 edition = "2024"
 license-file="LICENSE"
 description = "A dotenv file parser"
+license = "Apache 2.0"
 
 [dependencies]
