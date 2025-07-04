@@ -196,6 +196,9 @@ mod internals {
                 }
                 EnvToken::EOF => {
                     // todo fix this next
+                    if !current_key.is_empty() && !current_value.is_empty() {
+                        new_env_map.insert(current_key.clone(), current_value.clone());
+                    }
                     break;
                 }
             }
