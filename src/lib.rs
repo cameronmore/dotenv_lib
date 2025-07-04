@@ -228,7 +228,12 @@ pub fn serialize_new_env(file_name: String, hash_map: EnvMap) -> Result<String, 
 
 #[cfg(test)]
 mod tests {
-    use crate::internals::{EnvToken, lex_dot_env};
+    use std::fs;
+
+    use crate::{
+        internals::{EnvToken, lex_dot_env},
+        process_dot_env,
+    };
 
     #[test]
     fn simple_lex_dot_env() {
@@ -257,5 +262,12 @@ mod tests {
         ];
 
         assert_eq!(format!("{:?}", tokens), format!("{:?}", expected_tokens))
+    }
+
+    #[test]
+    fn read_simple_file() {
+        let contents = fs::read_to_string("Test.env").expect("error reading test env file");
+        let test_map = process_dot_env(contents).expect("error processing env file");
+        assert_eq!(test_map.get("Hello").unwrap(), "World")
     }
 }
