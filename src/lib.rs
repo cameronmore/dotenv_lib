@@ -26,18 +26,17 @@ mod internals {
 
     /// tokenizes the given `.env` file into a Vec of Tokens
     pub fn lex_dot_env(file_contents: String) -> Vec<EnvToken> {
-        let mut token_vec: Vec<EnvToken> = Vec::new();
-        for char in file_contents.chars() {
-            match char {
-                '=' => token_vec.push(EnvToken::AssignmentOperator),
-                ' ' => token_vec.push(EnvToken::Whitespace),
-                '#' => token_vec.push(EnvToken::Comment),
-                '\n' => token_vec.push(EnvToken::NewLine),
-                _ => token_vec.push(EnvToken::Character(char)),
-            }
-        }
-        token_vec.push(EnvToken::Eof);
-        token_vec
+        file_contents
+            .chars()
+            .map(|c| match c {
+                '=' => EnvToken::AssignmentOperator,
+                ' ' => EnvToken::Whitespace,
+                '#' => EnvToken::Comment,
+                '\n' => EnvToken::NewLine,
+                _ => EnvToken::Character(c),
+            })
+            .chain([EnvToken::Eof])
+            .collect()
     }
 
     /// reads the Vec of Tokens into a valid EnvMap and returns an error
