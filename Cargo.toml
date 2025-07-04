@@ -2,7 +2,7 @@
 name = "dotenv_lib"
 version = "0.1.0"
 edition = "2024"
-license-file="LICENSE.txt"
+license-file="LICENSE"
 description = "A dotenv file parser"
 
 [dependencies]
