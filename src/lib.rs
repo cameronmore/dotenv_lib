@@ -19,25 +19,24 @@ mod internals {
         Character(char),
         AssignmentOperator,
         NewLine,
-        EOF,
+        Eof,
         Comment,
         Whitespace,
     }
 
     /// tokenizes the given `.env` file into a Vec of Tokens
     pub fn lex_dot_env(file_contents: String) -> Vec<EnvToken> {
-        let mut token_vec: Vec<EnvToken> = Vec::new();
-        for char in file_contents.chars() {
-            match char {
-                '=' => token_vec.push(EnvToken::AssignmentOperator),
-                ' ' => token_vec.push(EnvToken::Whitespace),
-                '#' => token_vec.push(EnvToken::Comment),
-                '\n' => token_vec.push(EnvToken::NewLine),
-                _ => token_vec.push(EnvToken::Character(char)),
-            }
-        }
-        token_vec.push(EnvToken::EOF);
-        return token_vec;
+        file_contents
+            .chars()
+            .map(|c| match c {
+                '=' => EnvToken::AssignmentOperator,
+                ' ' => EnvToken::Whitespace,
+                '#' => EnvToken::Comment,
+                '\n' => EnvToken::NewLine,
+                _ => EnvToken::Character(c),
+            })
+            .chain([EnvToken::Eof])
+            .collect()
     }
 
     /// reads the Vec of Tokens into a valid EnvMap and returns an error
@@ -106,7 +105,7 @@ mod internals {
                     character_counter += 1;
                 }
                 EnvToken::Whitespace => {
-                    character_counter = character_counter + 1;
+                    character_counter += 1;
                     if in_a_comment {
                         continue;
                     }
@@ -137,7 +136,7 @@ mod internals {
                         expecting_value = false;
                         current_key.clear();
                         current_value.clear();
-                        line_counter = line_counter + 1;
+                        line_counter += 1;
                         in_a_comment = false;
                         character_counter = 0;
                         encountered_assignment = false;
@@ -186,7 +185,7 @@ mod internals {
                     current_key.clear();
                     current_value.clear();
                     in_a_comment = false;
-                    line_counter = line_counter + 1;
+                    line_counter += 1;
                     character_counter = 0;
                     encountered_assignment = false;
                     // and not expect a value,
@@ -194,7 +193,7 @@ mod internals {
                     // as well as calling the .clear() method on
                     // each of those strings
                 }
-                EnvToken::EOF => {
+                EnvToken::Eof => {
                     // todo fix this next
                     if !current_key.is_empty() && !current_value.is_empty() {
                         new_env_map.insert(current_key.clone(), current_value.clone());
@@ -204,12 +203,12 @@ mod internals {
             }
         }
 
-        return Ok(new_env_map);
+        Ok(new_env_map)
     }
 }
 /// fully reads and parses a `.env` file to return a map of non-empty key-value pairs
 pub fn process_dot_env(file_contents: String) -> Result<HashMap<String, String>, String> {
-    return internals::parse_dot_env(internals::lex_dot_env(file_contents));
+    internals::parse_dot_env(internals::lex_dot_env(file_contents))
 }
 
 /// serializes a hash map to a file, overwriting it if it already exists.
@@ -219,16 +218,21 @@ pub fn serialize_new_env(file_name: String, hash_map: EnvMap) -> Result<String, 
     let mut writer = BufWriter::new(file);
 
     for (k, v) in &hash_map {
-        let line = format!("{}={}\n", k, v);
+        let line = format!("{k}={v}\n");
         writer.write_all(line.as_bytes())?;
     }
     writer.flush()?;
-    return Ok(format!("serialized to {}", file_name));
+    Ok(format!("serialized to {file_name}"))
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::internals::{EnvToken, lex_dot_env};
+    use std::fs;
+
+    use crate::{
+        internals::{EnvToken, lex_dot_env},
+        process_dot_env,
+    };
 
     #[test]
     fn simple_lex_dot_env() {
@@ -253,9 +257,16 @@ mod tests {
             EnvToken::Character('n'),
             EnvToken::Character('t'),
             EnvToken::NewLine,
-            EnvToken::EOF,
+            EnvToken::Eof,
         ];
 
         assert_eq!(format!("{:?}", tokens), format!("{:?}", expected_tokens))
+    }
+
+    #[test]
+    fn read_simple_file() {
+        let contents = fs::read_to_string("Test.env").expect("error reading test env file");
+        let test_map = process_dot_env(contents).expect("error processing env file");
+        assert_eq!(test_map.get("Hello").unwrap(), "World")
     }
 }
