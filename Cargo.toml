@@ -1,0 +1,8 @@
+[package]
+name = "dotenv_lib"
+version = "0.1.0"
+edition = "2024"
+license-file="LICENSE.txt
+description = "A dotenv file parser"
+
+[dependencies]
