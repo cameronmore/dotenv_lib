@@ -272,6 +272,13 @@ mod internals {
                     if !current_key.is_empty() && !current_value.is_empty() {
                         new_env_map.insert(current_key.clone(), current_value.clone());
                     }
+                    // throw an error if there is a key or value missing its pair
+                    if current_key.is_empty() && !current_value.is_empty() {
+                        return Err(EnvError::MissingKey { line: line_counter })
+                    }
+                    if !current_key.is_empty() && current_value.is_empty() {
+                        return Err(EnvError::MissingValue { line: line_counter })
+                    }
                     break;
                 }
             }
