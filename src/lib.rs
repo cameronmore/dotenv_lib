@@ -48,26 +48,26 @@ mod internals {
         UnexpectedToken {
             expected: String,
             found: String,
-            line: i64,
-            character: i64,
+            line: u64,
+            character: u64,
         },
         MissingAssignmentOperator {
             key: String,
-            line: i64,
-            character: i64,
+            line: u64,
+            character: u64,
         },
         ExpectedValueButFoundAssignment {
-            line: i64,
-            character: i64,
+            line: u64,
+            character: u64,
         },
         MissingKey {
-            line: i64,
+            line: u64,
         },
         MissingValue {
-            line: i64,
+            line: u64,
         },
         FoundOnlyKey {
-            line: i64,
+            line: u64,
         },
     }
 
@@ -109,8 +109,8 @@ mod internals {
     /// for specific errors
     pub fn parse_dot_env(tokens: Vec<EnvToken>) -> Result<EnvMap, EnvError> {
         let mut new_env_map: EnvMap = EnvMap::new();
-        let mut line_counter: i64 = 1;
-        let mut character_counter: i64 = 1;
+        let mut line_counter: u64 = 1;
+        let mut character_counter: u64 = 1;
         let mut current_key: String = EnvVar::new();
         let mut current_value: String = EnvVal::new();
         let mut expecting_key: bool = true;
