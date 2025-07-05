@@ -97,7 +97,10 @@ mod internals {
                 ),
                 EnvError::MissingKey { line } => write!(f, "Key missing on line {line}"),
                 EnvError::MissingValue { line } => write!(f, "Value missing on line {line}"),
-                EnvError::FoundOnlyKey { line } => write!(f, "Only found key on line {line}"),
+                EnvError::FoundOnlyKey { line } => write!(
+                    f,
+                    "Only found key on line {line}, expected assignment operator and value"
+                ),
             }
         }
     }
@@ -227,8 +230,9 @@ mod internals {
                         };
                     }
 
+                    // if there's no assignment operator, but a key was encountered, error
                     if (!current_key.is_empty() && current_value.is_empty())
-                        && encountered_assignment
+                        && !encountered_assignment
                     {
                         return Err(EnvError::FoundOnlyKey { line: line_counter });
                     }
@@ -268,16 +272,15 @@ mod internals {
                     // each of those strings
                 }
                 EnvToken::Eof => {
-                    // todo fix this next
                     if !current_key.is_empty() && !current_value.is_empty() {
                         new_env_map.insert(current_key.clone(), current_value.clone());
                     }
                     // throw an error if there is a key or value missing its pair
                     if current_key.is_empty() && !current_value.is_empty() {
-                        return Err(EnvError::MissingKey { line: line_counter })
+                        return Err(EnvError::MissingKey { line: line_counter });
                     }
                     if !current_key.is_empty() && current_value.is_empty() {
-                        return Err(EnvError::MissingValue { line: line_counter })
+                        return Err(EnvError::MissingValue { line: line_counter });
                     }
                     break;
                 }
@@ -315,6 +318,7 @@ mod tests {
         process_dot_env,
     };
 
+    // reads a simple vec of tokens that should not error
     #[test]
     fn simple_lex_dot_env() {
         let contents = "KEY=VAL\n# comment\n".to_string();
@@ -344,10 +348,56 @@ mod tests {
         assert_eq!(format!("{:?}", tokens), format!("{:?}", expected_tokens))
     }
 
+    // reads a simple, well-formatted file that should not error
     #[test]
     fn read_simple_file() {
-        let contents = fs::read_to_string("Test.env").expect("error reading test env file");
+        let contents = fs::read_to_string("tests/Test.env").expect("error reading test env file");
         let test_map = process_dot_env(contents).expect("error processing env file");
         assert_eq!(test_map.get("Hello").unwrap(), "World")
+    }
+
+    // note the lack of a value at line 1 character 5
+    #[test]
+    fn expect_missing_value_err() {
+        let contents = "KEY=\n# comment\n".to_string();
+        let test_map = process_dot_env(contents);
+
+        match test_map {
+            Err(crate::internals::EnvError::MissingValue { line }) => {
+                assert_eq!(line, 1);
+            }
+            _ => panic!("Did not return correct error"),
+        }
+    }
+
+    // note the lack of a key at line one character 1
+    #[test]
+    fn expect_missing_key_err() {
+        let contents = "=VAL\n# comment\n".to_string();
+        let test_map = process_dot_env(contents);
+
+        match test_map {
+            Err(crate::internals::EnvError::MissingKey { line }) => {
+                assert_eq!(line, 1);
+            }
+            _ => panic!("Did not return correct error"),
+        }
+    }
+
+    // NOTE the whitespace after the new line
+    #[test]
+    fn expect_unexpected_token_err() {
+        let contents = "KEY=VAL\n # comment\n".to_string();
+        let test_map = process_dot_env(contents);
+
+        match test_map {
+            Err(crate::internals::EnvError::UnexpectedToken {
+                line, character, ..
+            }) => {
+                assert_eq!(line, 2);
+                assert_eq!(character, 1);
+            }
+            _ => panic!("Did not return correct error"),
+        }
     }
 }
