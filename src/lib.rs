@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::io::{BufWriter, Write};
 use std::{fs, io};
 
+use crate::internals::EnvError;
+
 // this and the the below type may be superflouous
 pub type EnvVar = String;
 
@@ -12,6 +14,8 @@ pub type EnvMap = HashMap<EnvVar, EnvVal>;
 
 // internal mod to handle lexing and parsing
 mod internals {
+    use core::fmt;
+
     use super::{EnvMap, EnvVal, EnvVar};
 
     #[derive(Debug)]
@@ -39,9 +43,68 @@ mod internals {
             .collect()
     }
 
+    #[derive(Debug, PartialEq)]
+    pub enum EnvError {
+        UnexpectedToken {
+            expected: String,
+            found: String,
+            line: i64,
+            character: i64,
+        },
+        MissingAssignmentOperator {
+            key: String,
+            line: i64,
+            character: i64,
+        },
+        ExpectedValueButFoundAssignment {
+            line: i64,
+            character: i64,
+        },
+        MissingKey {
+            line: i64,
+        },
+        MissingValue {
+            line: i64,
+        },
+        FoundOnlyKey {
+            line: i64,
+        },
+    }
+
+    impl fmt::Display for EnvError {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            match self {
+                EnvError::UnexpectedToken {
+                    expected,
+                    found,
+                    line,
+                    character,
+                } => write!(
+                    f,
+                    "Unexpected token: expected {expected} but found '{found}' at line {line}, character {character}",
+                ),
+                EnvError::MissingAssignmentOperator {
+                    key,
+                    line,
+                    character,
+                } => write!(
+                    f,
+                    "Missing assignment operator for key '{key}' on line {line}, character {character}",
+                ),
+                EnvError::ExpectedValueButFoundAssignment { line, character } => write!(
+                    f,
+                    "Expected value but found assignment operator at line {line}, character {character}"
+                ),
+                EnvError::MissingKey { line } => write!(f, "Key missing on line {line}"),
+                EnvError::MissingValue { line } => write!(f, "Value missing on line {line}"),
+                EnvError::FoundOnlyKey { line } => write!(f, "Only found key on line {line}"),
+            }
+        }
+    }
+
     /// reads the Vec of Tokens into a valid EnvMap and returns an error
     /// for specific errors
-    pub fn parse_dot_env(tokens: Vec<EnvToken>) -> Result<EnvMap, String> {
+    pub fn parse_dot_env(tokens: Vec<EnvToken>) -> Result<EnvMap, EnvError> {
         let mut new_env_map: EnvMap = EnvMap::new();
         let mut line_counter: i64 = 1;
         let mut character_counter: i64 = 1;
@@ -65,9 +128,12 @@ mod internals {
                             continue;
                         } else if !expecting_value {
                             // this case is when we finish parsing a value but get another character
-                            return Err(format!(
-                                "encountered unexpected token, expected comment or new line at line {line_counter}, character {character_counter}"
-                            ));
+                            return Err(EnvError::UnexpectedToken {
+                                expected: "comment of new line".to_string(),
+                                found: c.to_string(),
+                                line: line_counter,
+                                character: character_counter,
+                            });
                         }
                     }
                 }
@@ -78,9 +144,10 @@ mod internals {
                     // is in the value itself.
                     // this should be changed though once we account for quotation marks
                     if !expecting_key && current_value.is_empty() {
-                        return Err(format!(
-                            "expected value but found assignment operator on line {line_counter} character {character_counter}"
-                        ));
+                        return Err(EnvError::ExpectedValueButFoundAssignment {
+                            line: line_counter,
+                            character: character_counter,
+                        });
                     }
 
                     if !current_key.is_empty()
@@ -89,9 +156,10 @@ mod internals {
                         && !in_a_comment
                     {
                         // this should be modified when we add quoote handling
-                        return Err(format!(
-                            "encountered assignment operator at line {line_counter} character {character_counter}"
-                        ));
+                        return Err(EnvError::ExpectedValueButFoundAssignment {
+                            line: line_counter,
+                            character: character_counter,
+                        });
                     }
 
                     if !in_a_comment {
@@ -110,14 +178,20 @@ mod internals {
                         continue;
                     }
                     if current_key.is_empty() && expecting_key {
-                        return Err(format!(
-                            "expected key or comment symbol but encountered whitespace at line {line_counter} character {character_counter}"
-                        ));
+                        return Err(EnvError::UnexpectedToken {
+                            expected: "key or comment symbol".to_string(),
+                            found: " ".to_string(),
+                            line: line_counter,
+                            character: character_counter,
+                        });
                     }
                     if expecting_key {
-                        return Err(format!(
-                            "expected key or assignment operator but encountered whitespace at line {line_counter} character {character_counter}"
-                        ));
+                        return Err(EnvError::UnexpectedToken {
+                            expected: "key or comment symbol".to_string(),
+                            found: " ".to_string(),
+                            line: line_counter,
+                            character: character_counter,
+                        });
                     }
                     if expecting_value {
                         expecting_value = false;
@@ -146,31 +220,31 @@ mod internals {
                     // if there's an assignment operator but not key and value, throw an error
                     if encountered_assignment {
                         if current_key.is_empty() {
-                            return Err(format!("expected key for line {line_counter}"));
+                            return Err(EnvError::MissingKey { line: line_counter });
                         };
                         if current_value.is_empty() {
-                            return Err(format!("expected value for line {line_counter}"));
+                            return Err(EnvError::MissingValue { line: line_counter });
                         };
                     }
 
                     if (!current_key.is_empty() && current_value.is_empty())
                         && encountered_assignment
                     {
-                        return Err(format!(
-                            "expected assignment and value but only found key on line {line_counter}"
-                        ));
+                        return Err(EnvError::FoundOnlyKey { line: line_counter });
                     }
 
                     // we have a few things to do on the new line token
                     // first, check whether the key and value are not empty strings
                     // if either is empty, throw an error and report the line
                     // on which the error occured
-                    if (current_key.is_empty() && !current_value.is_empty())
-                        || (!current_key.is_empty() && current_value.is_empty())
-                    {
+                    if current_key.is_empty() && !current_value.is_empty() {
                         // throw error
                         // this 'or' condition could be broken up into multiple error returns though
-                        return Err(format!("key or value is missing on line {line_counter}"));
+                        return Err(EnvError::MissingKey { line: line_counter });
+                    }
+
+                    if !current_key.is_empty() && current_value.is_empty() {
+                        return Err(EnvError::MissingValue { line: line_counter });
                     }
 
                     if !current_key.is_empty() && !current_value.is_empty() {
@@ -207,7 +281,7 @@ mod internals {
     }
 }
 /// fully reads and parses a `.env` file to return a map of non-empty key-value pairs
-pub fn process_dot_env(file_contents: String) -> Result<HashMap<String, String>, String> {
+pub fn process_dot_env(file_contents: String) -> Result<HashMap<String, String>, EnvError> {
     internals::parse_dot_env(internals::lex_dot_env(file_contents))
 }
 
