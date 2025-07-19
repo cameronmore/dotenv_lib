@@ -297,14 +297,11 @@ pub fn process_dot_env(file_contents: String) -> Result<HashMap<String, String>,
 
 /// serializes a hash map to a file, overwriting it if it already exists.
 pub fn serialize_new_env(file_name: String, hash_map: EnvMap) -> Result<String, io::Error> {
-    // let file_path = file_name;
     let file = fs::File::create(file_name.clone())?;
     let mut writer = BufWriter::new(file);
-
-    for (k, v) in &hash_map {
-        let line = format!("{k}={v}\n");
-        writer.write_all(line.as_bytes())?;
-    }
+    hash_map
+        .iter()
+        .try_for_each(|map| writer.write_all(format!("{}={}\n", map.0, map.1).as_bytes()))?;
     writer.flush()?;
     Ok(format!("serialized to {file_name}"))
 }
@@ -314,8 +311,8 @@ mod tests {
     use std::fs;
 
     use crate::{
-        internals::{EnvToken, lex_dot_env},
-        process_dot_env,
+        internals::{lex_dot_env, EnvToken},
+        process_dot_env, serialize_new_env,
     };
 
     // reads a simple vec of tokens that should not error
@@ -399,5 +396,12 @@ mod tests {
             }
             _ => panic!("Did not return correct error"),
         }
+    }
+
+    #[test]
+    fn parse_and_serialize() {
+        let contents = fs::read_to_string("tests/Test.env").expect("unable to read file");
+        let env_test_map = process_dot_env(contents).expect("unable to process env");
+        serialize_new_env("tests/TestSerialize.env".to_string(), env_test_map).expect("unable to serialize env");
     }
 }
