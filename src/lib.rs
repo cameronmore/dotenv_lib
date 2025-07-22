@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+use std::io::Error as IOError;
 use std::io::{BufWriter, Write};
+use std::path::PathBuf;
 use std::{fs, io};
 
 use crate::internals::EnvError;
@@ -11,6 +13,45 @@ pub type EnvVal = String;
 
 // if the above are not needed then change this to EnvMap = HashMap<String, String>
 pub type EnvMap = HashMap<EnvVar, EnvVal>;
+
+#[derive(Debug)]
+pub enum FindEnvError {
+    Io(IOError),
+    Env(EnvError),
+    NotFound(String),
+}
+
+impl std::fmt::Display for FindEnvError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FindEnvError::Env(err) => write!(f, "I/O Error: {err}"),
+            FindEnvError::Io(err) => write!(f, "Env parsing error: {err}"),
+            FindEnvError::NotFound(msg) => write!(f, "FindEnv error: {msg}"),
+        }
+    }
+}
+
+impl std::error::Error for FindEnvError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            FindEnvError::Env(err) => Some(err),
+            FindEnvError::Io(err) => Some(err),
+            FindEnvError::NotFound(_) => None,
+        }
+    }
+}
+
+impl From<IOError> for FindEnvError {
+    fn from(value: IOError) -> Self {
+        FindEnvError::Io(value)
+    }
+}
+
+impl From<EnvError> for FindEnvError {
+    fn from(value: EnvError) -> Self {
+        FindEnvError::Env(value)
+    }
+}
 
 // internal mod to handle lexing and parsing
 mod internals {
@@ -114,6 +155,8 @@ mod internals {
             }
         }
     }
+
+    impl std::error::Error for EnvError {}
 
     /// reads the Vec of Tokens into a valid EnvMap and returns an error
     /// for specific errors
@@ -444,7 +487,7 @@ pub fn process_dot_env(file_contents: String) -> Result<HashMap<String, String>,
 }
 
 /// Serializes a hash map to a file, overwriting it if it already exists.
-/// 
+///
 /// Given a hashmap of key-value pairs called `test_map`, we can call this function as so:
 /// ```rust
 /// # use std::collections::HashMap;
@@ -467,11 +510,58 @@ pub fn serialize_new_env(file_name: String, hash_map: EnvMap) -> Result<String, 
     Ok(format!("serialized to {file_name}"))
 }
 
+/// recursively searches up a filesystem looking for a file that ends with `.env` to parse.
+fn find_env_string(directory_to_search: Option<String>) -> Option<String> {
+    let current_dir_path_buf = directory_to_search
+        .map(PathBuf::from)
+        .unwrap_or_else(|| std::env::current_dir().expect("Failed to get current directory"));
+
+    if let Ok(entries) = fs::read_dir(&current_dir_path_buf) {
+        let found_file = entries
+            .filter_map(|entry_result| entry_result.ok())
+            .find(|entry| {
+                let path = entry.path();
+                path.is_file()
+                    && path
+                        .file_name()
+                        .and_then(|f_name| f_name.to_str())
+                        .map_or(false, |f| f.ends_with(".env"))
+            })
+            .map(|entry| entry.path());
+
+        if let Some(path) = found_file {
+            return Some(path.to_string_lossy().into_owned());
+        }
+    }
+
+    if let Some(parent_dir_path_buf) = current_dir_path_buf.parent() {
+        return find_env_string(Some(parent_dir_path_buf.to_string_lossy().into_owned()));
+    }
+    None
+}
+
+pub fn find_env(
+    directory_to_search: Option<String>,
+) -> Result<HashMap<String, String>, FindEnvError> {
+    let find_result = find_env_string(directory_to_search);
+    match find_result {
+        Some(r) => {
+            let contents = fs::read_to_string(r)?;
+            let map_result = process_dot_env(contents)?;
+            Ok(map_result)
+        }
+        None => Err(FindEnvError::NotFound(
+            "Env file not found in current or any parent directories".to_string(),
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
 
     use crate::{
+        FindEnvError, find_env, find_env_string,
         internals::{EnvToken, lex_dot_env},
         process_dot_env, serialize_new_env,
     };
@@ -713,5 +803,39 @@ mod tests {
         let env_test_map = process_dot_env(contents).expect("unable to process env");
         serialize_new_env("tests/TestSerialize.env".to_string(), env_test_map)
             .expect("unable to serialize env");
+    }
+
+    #[test]
+    fn find_local_env_string() {
+        let found_path_result = find_env_string(None);
+        match found_path_result {
+            Some(rs) => {
+                assert!(rs.ends_with("FindMe.env"));
+            }
+            None => {
+                assert!(found_path_result.is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn find_local_env_and_parse() {
+        let found_path_result: Result<
+            std::collections::HashMap<String, String>,
+            crate::FindEnvError,
+        > = find_env(None);
+        match found_path_result {
+            Ok(rs) => {
+                assert_eq!(rs.get("Hello").unwrap(), "World")
+            }
+            Err(err) => match err {
+                FindEnvError::NotFound(_err) => {
+                    assert!(true);
+                }
+                _ => {
+                    panic!("Encountered unexpected error type")
+                }
+            },
+        }
     }
 }
