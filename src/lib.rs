@@ -510,7 +510,7 @@ pub fn serialize_new_env(file_name: String, hash_map: EnvMap) -> Result<String, 
     Ok(format!("serialized to {file_name}"))
 }
 
-/// recursively searches up a filesystem looking for a file that ends with `.env` to parse.
+/// recursively searches up a filesystem looking for a filepath that ends with `.env` to parse.
 fn find_env_string(directory_to_search: Option<String>) -> Option<String> {
     let current_dir_path_buf = directory_to_search
         .map(PathBuf::from)
@@ -540,6 +540,17 @@ fn find_env_string(directory_to_search: Option<String>) -> Option<String> {
     None
 }
 
+/// Resursively searches the given and parent directories for a `.env` file.
+/// ```
+/// # use std::collections::HashMap;
+/// # use std::fs;
+/// # use crate::dotenv_lib::{process_dot_env, serialize_new_env, FindEnvError, find_env};
+/// let found_path_result = find_env(None);
+/// match found_path_result {
+///     Ok(rs) => {assert_eq!(rs.get("Hello").unwrap(), "World")},
+///     Err(err) => panic!("Encountered unexpected error type")
+/// # }
+/// ```
 pub fn find_env(
     directory_to_search: Option<String>,
 ) -> Result<HashMap<String, String>, FindEnvError> {
