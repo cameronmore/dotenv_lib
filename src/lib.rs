@@ -356,6 +356,9 @@ mod internals {
                                 character: character_counter,
                             });
                         }
+                        if current_value != "" {
+                            return Err(EnvError::UnexpectedToken { expected: "value, whitespace, newline, or comment".to_string(), found: "single quotation mark".to_string(), line: line_counter, character: character_counter })
+                        }
                         in_single_quoted_string = true;
                     }
                 }
@@ -389,6 +392,9 @@ mod internals {
                                 line: line_counter,
                                 character: character_counter,
                             });
+                        }
+                        if current_value != "" {
+                            return Err(EnvError::UnexpectedToken { expected: "value, whitespace, newline, or comment".to_string(), found: "double quotation mark".to_string(), line: line_counter, character: character_counter })
                         }
                         in_double_quoted_string = true;
                         continue;
@@ -595,9 +601,10 @@ mod tests {
     /// do not expect an error parsing special characters in a quoted value
     #[test]
     fn read_double_quoted_value_with_special_chars() {
-        let contents = "HELLO=\"v a l' # \n val\"\n\n".to_string();
+        let contents = "HELLO=\"v a l' # \n val\"\n\nK2=V2\n".to_string();
         let test_map = process_dot_env(contents).expect("error processing env file");
-        assert_eq!(test_map.get("HELLO").unwrap(), "v a l' # \n val")
+        assert_eq!(test_map.get("HELLO").unwrap(), "v a l' # \n val");
+        assert_eq!(test_map.get("K2").unwrap(),"V2");
     }
 
 
@@ -643,6 +650,19 @@ mod tests {
         }
     }
 
+        /// expect an error that the single quote is never closed
+    #[test]
+    fn expect_unencountered_double_quote_err() {
+        let contents = "KEY=VAL\" some text\n # comment\n".to_string();
+        let test_map = process_dot_env(contents);
+
+        match test_map {
+            Err(crate::internals::EnvError::UnexpectedToken { line, .. }) => {
+                assert_eq!(line, 1);
+            }
+            _ => panic!("Did not return correct error"),
+        }
+    }
 
     /// simple parse and serialize fully
     #[test]
