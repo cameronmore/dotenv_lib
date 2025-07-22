@@ -357,7 +357,12 @@ mod internals {
                             });
                         }
                         if current_value != "" {
-                            return Err(EnvError::UnexpectedToken { expected: "value, whitespace, newline, or comment".to_string(), found: "single quotation mark".to_string(), line: line_counter, character: character_counter })
+                            return Err(EnvError::UnexpectedToken {
+                                expected: "value, whitespace, newline, or comment".to_string(),
+                                found: "single quotation mark".to_string(),
+                                line: line_counter,
+                                character: character_counter,
+                            });
                         }
                         in_single_quoted_string = true;
                     }
@@ -386,7 +391,7 @@ mod internals {
 
                     if !in_double_quoted_string {
                         if expecting_key {
-                             return Err(EnvError::UnexpectedToken {
+                            return Err(EnvError::UnexpectedToken {
                                 expected: "key or assignment operator".to_string(),
                                 found: "double quote mark".to_string(),
                                 line: line_counter,
@@ -394,7 +399,12 @@ mod internals {
                             });
                         }
                         if current_value != "" {
-                            return Err(EnvError::UnexpectedToken { expected: "value, whitespace, newline, or comment".to_string(), found: "double quotation mark".to_string(), line: line_counter, character: character_counter })
+                            return Err(EnvError::UnexpectedToken {
+                                expected: "value, whitespace, newline, or comment".to_string(),
+                                found: "double quotation mark".to_string(),
+                                line: line_counter,
+                                character: character_counter,
+                            });
                         }
                         in_double_quoted_string = true;
                         continue;
@@ -408,12 +418,45 @@ mod internals {
         Ok(new_env_map)
     }
 }
-/// fully reads and parses a `.env` file to return a map of non-empty key-value pairs
+
+/// Fully reads and parses a `.env` file to return a map of non-empty key-value pairs. This function expects
+/// a string representation of file contents, so the caller must have previously opened the `.env` file. For example,
+/// given a file `Test.env` that contains following content as key-value pairs:
+///
+/// Hello=World
+///
+/// NICE_TO='meet you'
+///
+/// We can call this function as so:
+/// ```rust
+/// # use std::collections::HashMap;
+/// # use std::fs;
+/// # use dotenv_lib::process_dot_env;
+/// # fn read_simple_file() {
+/// let contents = fs::read_to_string("tests/Test.env").unwrap();
+/// let test_map = process_dot_env(contents).unwrap();
+/// assert_eq!(test_map.get("Hello").unwrap(), "World");
+/// assert_eq!(test_map.get("NICE_TO").unwrap(), "meet you");
+/// # }
+/// ```
 pub fn process_dot_env(file_contents: String) -> Result<HashMap<String, String>, EnvError> {
     internals::parse_dot_env(internals::lex_dot_env(file_contents))
 }
 
-/// serializes a hash map to a file, overwriting it if it already exists.
+/// Serializes a hash map to a file, overwriting it if it already exists.
+/// 
+/// Given a hashmap of key-value pairs called `test_map`, we can call this function as so:
+/// ```rust
+/// # use std::collections::HashMap;
+/// # use std::fs;
+/// # use dotenv_lib::{process_dot_env, serialize_new_env};
+/// # fn read_simple_file() {
+/// # let contents = fs::read_to_string("tests/Test.env").unwrap();
+/// # let test_map = process_dot_env(contents).unwrap();
+/// # assert_eq!(test_map.get("Hello").unwrap(), "World");
+/// serialize_new_env("tests/TestSerialize.env".to_string(), test_map).unwrap();
+/// # }
+/// ```
 pub fn serialize_new_env(file_name: String, hash_map: EnvMap) -> Result<String, io::Error> {
     let file = fs::File::create(file_name.clone())?;
     let mut writer = BufWriter::new(file);
@@ -604,9 +647,8 @@ mod tests {
         let contents = "HELLO=\"v a l' # \n val\"\n\nK2=V2\n".to_string();
         let test_map = process_dot_env(contents).expect("error processing env file");
         assert_eq!(test_map.get("HELLO").unwrap(), "v a l' # \n val");
-        assert_eq!(test_map.get("K2").unwrap(),"V2");
+        assert_eq!(test_map.get("K2").unwrap(), "V2");
     }
-
 
     /// expect an error that the value is missing
     #[test]
@@ -650,7 +692,7 @@ mod tests {
         }
     }
 
-        /// expect an error that the single quote is never closed
+    /// expect an error that the single quote is never closed
     #[test]
     fn expect_unencountered_double_quote_err() {
         let contents = "KEY=VAL\" some text\n # comment\n".to_string();
