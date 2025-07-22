@@ -25,6 +25,8 @@ mod internals {
         NewLine,
         Eof,
         Comment,
+        DoubleQuoteMark,
+        SingleQuoteMark,
         Whitespace,
     }
 
@@ -37,6 +39,8 @@ mod internals {
                 ' ' => EnvToken::Whitespace,
                 '#' => EnvToken::Comment,
                 '\n' => EnvToken::NewLine,
+                '"' => EnvToken::DoubleQuoteMark,
+                '\'' => EnvToken::SingleQuoteMark,
                 _ => EnvToken::Character(c),
             })
             .chain([EnvToken::Eof])
@@ -67,6 +71,9 @@ mod internals {
             line: u64,
         },
         FoundOnlyKey {
+            line: u64,
+        },
+        UnclosedValue {
             line: u64,
         },
     }
@@ -101,6 +108,9 @@ mod internals {
                     f,
                     "Only found key on line {line}, expected assignment operator and value"
                 ),
+                EnvError::UnclosedValue { line } => {
+                    write!(f, "Key or value was not closed from line {line}")
+                }
             }
         }
     }
@@ -117,6 +127,7 @@ mod internals {
         let mut expecting_value: bool = false;
         let mut in_a_comment: bool = false;
         let mut encountered_assignment: bool = false;
+        let mut in_single_quoted_string: bool = false;
 
         for token in tokens {
             match token {
@@ -141,6 +152,11 @@ mod internals {
                     }
                 }
                 EnvToken::AssignmentOperator => {
+                    if in_single_quoted_string && expecting_value {
+                        current_value.push('=');
+                        continue;
+                    }
+
                     // this throws an error if we already know we're expecting a value
                     // but we get an '=' sign and not any characters.
                     // but if there's already content in the current value, we know that this equals sign
@@ -176,6 +192,13 @@ mod internals {
                     character_counter += 1;
                 }
                 EnvToken::Whitespace => {
+                    if in_single_quoted_string {
+                        if expecting_value {
+                            current_value.push(' ');
+                        }
+                        continue;
+                    }
+
                     character_counter += 1;
                     if in_a_comment {
                         continue;
@@ -201,9 +224,20 @@ mod internals {
                     }
                 }
                 EnvToken::Comment => {
+                    if in_single_quoted_string {
+                        if expecting_value {
+                            current_value.push('#');
+                            continue;
+                        }
+                    }
                     in_a_comment = true;
                 }
                 EnvToken::NewLine => {
+                    if in_single_quoted_string {
+                        current_value.push('\n');
+                        continue;
+                    }
+
                     // if there is not key or value, and if there's no assignment operator,
                     // then just reset and continue
                     if (current_key.is_empty() && current_value.is_empty())
@@ -272,6 +306,10 @@ mod internals {
                     // each of those strings
                 }
                 EnvToken::Eof => {
+                    if in_single_quoted_string {
+                        return Err(EnvError::UnclosedValue { line: line_counter });
+                    }
+
                     if !current_key.is_empty() && !current_value.is_empty() {
                         new_env_map.insert(current_key.clone(), current_value.clone());
                     }
@@ -283,6 +321,44 @@ mod internals {
                         return Err(EnvError::MissingValue { line: line_counter });
                     }
                     break;
+                }
+                EnvToken::SingleQuoteMark => {
+                    if in_single_quoted_string {
+                        // end of the single quoted string is found and assert we are not expecting any more of the value
+                        in_single_quoted_string = false;
+                        expecting_value = false;
+                        continue;
+                    }
+
+                    // quotes are not allowed in keys, so
+                    // if expecting a key, throw an error
+                    if !in_single_quoted_string {
+                        if expecting_key {
+                            return Err(EnvError::UnexpectedToken {
+                                expected: "key or assignment operator".to_string(),
+                                found: "single quote mark".to_string(),
+                                line: line_counter,
+                                character: character_counter,
+                            });
+                        }
+                        in_single_quoted_string = true;
+                    }
+                }
+                EnvToken::DoubleQuoteMark => {
+                    if in_single_quoted_string {
+                        if expecting_key {
+                            return Err(EnvError::UnexpectedToken {
+                                expected: "key or assignment operator".to_string(),
+                                found: "double quote mark".to_string(),
+                                line: line_counter,
+                                character: character_counter,
+                            });
+                        }
+                        if expecting_value {
+                            current_value.push('"');
+                        }
+                    }
+                    continue;
                 }
             }
         }
@@ -311,11 +387,11 @@ mod tests {
     use std::fs;
 
     use crate::{
-        internals::{lex_dot_env, EnvToken},
+        internals::{EnvToken, lex_dot_env},
         process_dot_env, serialize_new_env,
     };
 
-    // reads a simple vec of tokens that should not error
+    /// reads a simple vec of tokens that should not error
     #[test]
     fn simple_lex_dot_env() {
         let contents = "KEY=VAL\n# comment\n".to_string();
@@ -345,7 +421,39 @@ mod tests {
         assert_eq!(format!("{:?}", tokens), format!("{:?}", expected_tokens))
     }
 
-    // reads a simple, well-formatted file that should not error
+    /// reads a simple vec of tokens that should not error
+    #[test]
+    fn simple_single_quoted_lex_dot_env() {
+        let contents = "KEY='VAL'\n# comment\n".to_string();
+        let tokens = lex_dot_env(contents);
+        let expected_tokens = vec![
+            EnvToken::Character('K'),
+            EnvToken::Character('E'),
+            EnvToken::Character('Y'),
+            EnvToken::AssignmentOperator,
+            EnvToken::SingleQuoteMark,
+            EnvToken::Character('V'),
+            EnvToken::Character('A'),
+            EnvToken::Character('L'),
+            EnvToken::SingleQuoteMark,
+            EnvToken::NewLine,
+            EnvToken::Comment,
+            EnvToken::Whitespace,
+            EnvToken::Character('c'),
+            EnvToken::Character('o'),
+            EnvToken::Character('m'),
+            EnvToken::Character('m'),
+            EnvToken::Character('e'),
+            EnvToken::Character('n'),
+            EnvToken::Character('t'),
+            EnvToken::NewLine,
+            EnvToken::Eof,
+        ];
+
+        assert_eq!(format!("{:?}", tokens), format!("{:?}", expected_tokens))
+    }
+
+    /// reads a simple, well-formatted file that should not error
     #[test]
     fn read_simple_file() {
         let contents = fs::read_to_string("tests/Test.env").expect("error reading test env file");
@@ -353,7 +461,7 @@ mod tests {
         assert_eq!(test_map.get("Hello").unwrap(), "World")
     }
 
-    // note the lack of a value at line 1 character 5
+    /// note the lack of a value at line 1 character 5
     #[test]
     fn expect_missing_value_err() {
         let contents = "KEY=\n# comment\n".to_string();
@@ -367,7 +475,7 @@ mod tests {
         }
     }
 
-    // note the lack of a key at line one character 1
+    /// note the lack of a key at line one character 1
     #[test]
     fn expect_missing_key_err() {
         let contents = "=VAL\n# comment\n".to_string();
@@ -381,7 +489,7 @@ mod tests {
         }
     }
 
-    // NOTE the whitespace after the new line
+    /// NOTE the whitespace after the new line
     #[test]
     fn expect_unexpected_token_err() {
         let contents = "KEY=VAL\n # comment\n".to_string();
@@ -398,10 +506,62 @@ mod tests {
         }
     }
 
+    /// expect an error that the single quote is never closed
+    #[test]
+    fn expect_unclosed_signel_quote_err() {
+        let contents = "KEY='VAL\n # comment\n".to_string();
+        let test_map = process_dot_env(contents);
+
+        match test_map {
+            Err(crate::internals::EnvError::UnclosedValue { line, .. }) => {
+                assert_eq!(line, 1);
+            }
+            _ => panic!("Did not return correct error"),
+        }
+    }
+
+    /// expect an error that the value is missing
+    #[test]
+    fn expect_empty_val_single_quote_err() {
+        let contents = "KEY='' # same line comment \n # new line comment\n".to_string();
+        let test_map = process_dot_env(contents);
+
+        match test_map {
+            Err(crate::internals::EnvError::MissingValue { line, .. }) => {
+                assert_eq!(line, 1);
+            }
+            _ => panic!("Did not return correct error"),
+        }
+    }
+
+    /// keys cannot have single or double quotes, only numbers, letters, and underscores,
+    /// and must begin with a letter
+    #[test]
+    fn expect_unexpected_value_in_key_single_quote_err() {
+        let contents = "'KEY'='value' # same line comment \n".to_string();
+        let test_map = process_dot_env(contents);
+        match test_map {
+            Err(crate::internals::EnvError::UnexpectedToken { line, .. }) => {
+                assert_eq!(line, 1);
+            }
+            _ => panic!("Did not return correct error"),
+        }
+    }
+
+    /// do not expect an error parsing special characters in a quoted value
+    #[test]
+    fn read_single_quoted_value_with_special_chars() {
+        let contents = "HELLO='v a l # \n val\"=val'\n\n".to_string();
+        let test_map = process_dot_env(contents).expect("error processing env file");
+        assert_eq!(test_map.get("HELLO").unwrap(), "v a l # \n val\"=val")
+    }
+
+    /// simple parse and serialize fully
     #[test]
     fn parse_and_serialize() {
         let contents = fs::read_to_string("tests/Test.env").expect("unable to read file");
         let env_test_map = process_dot_env(contents).expect("unable to process env");
-        serialize_new_env("tests/TestSerialize.env".to_string(), env_test_map).expect("unable to serialize env");
+        serialize_new_env("tests/TestSerialize.env".to_string(), env_test_map)
+            .expect("unable to serialize env");
     }
 }
