@@ -1,8 +1,8 @@
 # dotenv Parser
 
-This is a library for parsing dotenv files. It was built for educational purposes and is not intended to replace any other libraries or be used in production.
+This is a library for parsing dotenv files. It was built for educational purposes and although tested, has not been tested against a baseline `.env` set of tests.
 
-Please feel free, though, to use it and report any bugs or issues.
+## Quickstart
 
 Example of usage:
 ```Rust
@@ -21,4 +21,16 @@ fn main() {
 }
 ```
 
-### **CAUTION. This parser supports single quoted (') values for including special characters in values such as the equals sign, the double quotation mark, and whitespaces. It does not support multi-line triple quoting (`key="""example \n value"""`) or double quoted values for including single quotes in values (`key="val ' ue"`) It also does not handle any interpolation**
+## Docs
+
+It is designed to follow the syntax outlined [here](https://hexdocs.pm/dotenvy/dotenv-file-format.html#variable-names), but does not perform any interpolation for single-quoted values and does not support triple-quoted values (aka, `KEY="""VALUE"""`).
+
+In brief:
+- keys must start with a letter and contain only letters, underscores, and numbers.
+- values terminate at a comment sign (`#`), newline (`\n`), and end-of-file.
+- values may be single or double quoted.
+- for values to have special characters (`#`, `=`, `\n`, `'`, and `"`), they must be single or double quoted (single to hold double quotes, double to hold single quotes).
+
+Please feel free, though, to use it and report any bugs or issues.
+
+### **CAUTION. This parser supports single quoted (') ad double quoted (") values. It does not support multi-line triple quoting (`key="""example \n value"""`). It also does not handle any interpolation**
