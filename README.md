@@ -18,8 +18,7 @@ fn main() {
     for (k, v) in new_env_map.iter() {
         println!("{} : {}", k, v);
     }
-
 }
 ```
 
-### **CAUTION. This parser supports single quoted (') values for including special characters in values such as the equals sign, the double quotation mark, and whitespaces. It does not support multi-line triple quoting (`key="""example \n value"""`) or double quoted values for including single quotes in values (`key="val ' ue"`)**
+### **CAUTION. This parser supports single quoted (') values for including special characters in values such as the equals sign, the double quotation mark, and whitespaces. It does not support multi-line triple quoting (`key="""example \n value"""`) or double quoted values for including single quotes in values (`key="val ' ue"`) It also does not handle any interpolation**

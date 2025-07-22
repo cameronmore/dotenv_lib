@@ -128,6 +128,7 @@ mod internals {
         let mut in_a_comment: bool = false;
         let mut encountered_assignment: bool = false;
         let mut in_single_quoted_string: bool = false;
+        let mut in_double_quoted_string: bool = false;
 
         for token in tokens {
             match token {
@@ -152,7 +153,7 @@ mod internals {
                     }
                 }
                 EnvToken::AssignmentOperator => {
-                    if in_single_quoted_string && expecting_value {
+                    if (in_single_quoted_string || in_double_quoted_string) && expecting_value {
                         current_value.push('=');
                         continue;
                     }
@@ -192,7 +193,7 @@ mod internals {
                     character_counter += 1;
                 }
                 EnvToken::Whitespace => {
-                    if in_single_quoted_string {
+                    if in_single_quoted_string || in_double_quoted_string {
                         if expecting_value {
                             current_value.push(' ');
                         }
@@ -224,7 +225,7 @@ mod internals {
                     }
                 }
                 EnvToken::Comment => {
-                    if in_single_quoted_string {
+                    if in_single_quoted_string || in_double_quoted_string {
                         if expecting_value {
                             current_value.push('#');
                             continue;
@@ -233,7 +234,7 @@ mod internals {
                     in_a_comment = true;
                 }
                 EnvToken::NewLine => {
-                    if in_single_quoted_string {
+                    if in_single_quoted_string || in_double_quoted_string {
                         current_value.push('\n');
                         continue;
                     }
@@ -306,7 +307,7 @@ mod internals {
                     // each of those strings
                 }
                 EnvToken::Eof => {
-                    if in_single_quoted_string {
+                    if in_single_quoted_string || in_double_quoted_string {
                         return Err(EnvError::UnclosedValue { line: line_counter });
                     }
 
@@ -323,6 +324,20 @@ mod internals {
                     break;
                 }
                 EnvToken::SingleQuoteMark => {
+                    if in_double_quoted_string {
+                        if expecting_key {
+                            // quotes are not allowed in keys
+                            return Err(EnvError::UnexpectedToken {
+                                expected: "key or assignment operator".to_string(),
+                                found: "single quotation mark".to_string(),
+                                line: line_counter,
+                                character: character_counter,
+                            });
+                        }
+                        current_value.push('\'');
+                        continue;
+                    }
+
                     if in_single_quoted_string {
                         // end of the single quoted string is found and assert we are not expecting any more of the value
                         in_single_quoted_string = false;
@@ -356,8 +371,29 @@ mod internals {
                         }
                         if expecting_value {
                             current_value.push('"');
+                            continue;
                         }
                     }
+
+                    if in_double_quoted_string {
+                        in_double_quoted_string = false;
+                        expecting_value = false;
+                        continue;
+                    }
+
+                    if !in_double_quoted_string {
+                        if expecting_key {
+                             return Err(EnvError::UnexpectedToken {
+                                expected: "key or assignment operator".to_string(),
+                                found: "double quote mark".to_string(),
+                                line: line_counter,
+                                character: character_counter,
+                            });
+                        }
+                        in_double_quoted_string = true;
+                        continue;
+                    }
+
                     continue;
                 }
             }
@@ -508,7 +544,7 @@ mod tests {
 
     /// expect an error that the single quote is never closed
     #[test]
-    fn expect_unclosed_signel_quote_err() {
+    fn expect_unclosed_single_quote_err() {
         let contents = "KEY='VAL\n # comment\n".to_string();
         let test_map = process_dot_env(contents);
 
@@ -555,6 +591,58 @@ mod tests {
         let test_map = process_dot_env(contents).expect("error processing env file");
         assert_eq!(test_map.get("HELLO").unwrap(), "v a l # \n val\"=val")
     }
+
+    /// do not expect an error parsing special characters in a quoted value
+    #[test]
+    fn read_double_quoted_value_with_special_chars() {
+        let contents = "HELLO=\"v a l' # \n val\"\n\n".to_string();
+        let test_map = process_dot_env(contents).expect("error processing env file");
+        assert_eq!(test_map.get("HELLO").unwrap(), "v a l' # \n val")
+    }
+
+
+    /// expect an error that the value is missing
+    #[test]
+    fn expect_empty_val_double_quote_err() {
+        let contents = "KEY=\"\" # same line comment \n # new line comment\n".to_string();
+        let test_map = process_dot_env(contents);
+
+        match test_map {
+            Err(crate::internals::EnvError::MissingValue { line, .. }) => {
+                assert_eq!(line, 1);
+            }
+            _ => panic!("Did not return correct error"),
+        }
+    }
+
+    /// keys cannot have single or double quotes, only numbers, letters, and underscores,
+    /// and must begin with a letter
+    #[test]
+    fn expect_unexpected_value_in_key_double_quote_err() {
+        let contents = "\"KEY\"='value' # same line comment \n".to_string();
+        let test_map = process_dot_env(contents);
+        match test_map {
+            Err(crate::internals::EnvError::UnexpectedToken { line, .. }) => {
+                assert_eq!(line, 1);
+            }
+            _ => panic!("Did not return correct error"),
+        }
+    }
+
+    /// expect an error that the single quote is never closed
+    #[test]
+    fn expect_unclosed_double_quote_err() {
+        let contents = "KEY=\"VAL\n # comment\n".to_string();
+        let test_map = process_dot_env(contents);
+
+        match test_map {
+            Err(crate::internals::EnvError::UnclosedValue { line, .. }) => {
+                assert_eq!(line, 1);
+            }
+            _ => panic!("Did not return correct error"),
+        }
+    }
+
 
     /// simple parse and serialize fully
     #[test]
